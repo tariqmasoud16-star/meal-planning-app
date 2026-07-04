@@ -1,0 +1,7 @@
+node_modules/
+.next/
+data/
+.env
+public/recipe-photos/
+*.log
+.DS_Store
