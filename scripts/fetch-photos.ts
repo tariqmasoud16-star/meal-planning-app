@@ -9,6 +9,10 @@ import { db } from "../lib/db";
 // Overridable for testing; defaults to the real Pexels endpoint.
 const API_URL = process.env.PEXELS_API_URL ?? "https://api.pexels.com/v1/search";
 
+// Be gentle on the Pexels rate limit: pause between network requests.
+const REQUEST_DELAY_MS = 500;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 interface RecipeRow {
   id: number;
   title: string;
@@ -56,7 +60,10 @@ export async function fetchPhotos(): Promise<void> {
 
     const mainIngredient = (JSON.parse(recipe.ingredients)[0]?.name as string) ?? "";
     const cleanTitle = recipe.title.replace(/\(.*?\)/g, "").trim();
-    const query = `${cleanTitle} ${mainIngredient}`.trim();
+    const query = `${cleanTitle} ${mainIngredient} food`.replace(/\s+/g, " ").trim();
+
+    // Rate-limit friendly: pause before every network request after the first.
+    if (downloaded + failed > 0) await sleep(REQUEST_DELAY_MS);
 
     try {
       const searchRes = await fetch(
