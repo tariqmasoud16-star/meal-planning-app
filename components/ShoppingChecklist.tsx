@@ -41,17 +41,19 @@ export default function ShoppingChecklist({
         const items = groups[cat];
         if (!items || items.length === 0) return null;
         return (
-          <section key={cat}>
+          <section key={cat} className="shopping-section">
             <h2 className="mb-1.5 text-sm font-bold uppercase tracking-wide text-stone-500">
               {GROUP_LABELS[cat]}
             </h2>
-            <ul className="divide-y divide-stone-100 rounded-lg border border-stone-200 bg-white">
+            <ul className="shopping-list divide-y divide-stone-100 rounded-lg border border-stone-200 bg-white">
               {items.map((item) => {
                 const key = `${item.name}|${item.unit}`;
                 const isChecked = checked.has(key);
                 return (
                   <li key={key}>
                     <label className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm hover:bg-stone-50">
+                      {/* Empty square for paper; the live input is hidden on print. */}
+                      <span className="print-square" aria-hidden="true" />
                       <input
                         type="checkbox"
                         checked={isChecked}

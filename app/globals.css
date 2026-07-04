@@ -1,1 +1,127 @@
 @import "tailwindcss";
+
+/* Print-only header block is hidden on screen; shown on paper. */
+.print-only {
+  display: none;
+}
+
+/* Empty checkbox square never shows on screen. */
+.print-square {
+  display: none;
+}
+
+/* --------------------------------------------------------------------------
+   Shopping-list print stylesheet. Scoped with :has(.print-shopping) so these
+   rules only apply when printing FROM the shopping list page, never elsewhere.
+   Clean A4, black on white, no reliance on background colors.
+   -------------------------------------------------------------------------- */
+@media print {
+  @page {
+    size: A4;
+    margin: 15mm;
+  }
+
+  /* Only touch the DOM when the shopping list is what's on screen. */
+  body:has(.print-shopping) {
+    background: #fff;
+    color: #000;
+    font-size: 11.5pt;
+  }
+
+  /* Hide everything that isn't the list itself: site nav, buttons,
+     the on-screen heading/summary. (Photos, week view and lunch lines
+     don't exist on this route, but the nav header does.) */
+  body:has(.print-shopping) header,
+  body:has(.print-shopping) nav,
+  body:has(.print-shopping) .no-print {
+    display: none !important;
+  }
+
+  /* Reveal the print header block. */
+  body:has(.print-shopping) .print-only {
+    display: block;
+  }
+
+  .print-header {
+    margin-bottom: 6mm;
+    border-bottom: 1.5pt solid #000;
+    padding-bottom: 3mm;
+  }
+  .print-header h1 {
+    font-size: 20pt;
+    font-weight: 700;
+    margin: 0 0 1mm;
+  }
+  .print-range {
+    font-size: 11pt;
+    margin: 0 0 2mm;
+  }
+  .print-recipes {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 9.5pt;
+    color: #000;
+  }
+  .print-recipes li {
+    line-height: 1.35;
+  }
+
+  /* Strip screen chrome from the list: no borders, rounding or backgrounds. */
+  .print-shopping .shopping-list {
+    border: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+  }
+  .print-shopping .shopping-list > li {
+    border: none !important;
+  }
+
+  /* Category = bold black header; keep it with its items, never strand it. */
+  .print-shopping .shopping-section {
+    break-inside: avoid;
+    margin-bottom: 4mm;
+  }
+  .print-shopping .shopping-section h2 {
+    color: #000 !important;
+    font-size: 12.5pt;
+    font-weight: 700;
+    break-after: avoid;
+    margin-bottom: 1.5mm;
+  }
+
+  /* Two-column item layout — fits A4 (~180mm) for short grocery lines. */
+  .print-shopping .shopping-list {
+    columns: 2;
+    column-gap: 10mm;
+  }
+  .print-shopping .shopping-list > li {
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    padding: 0 !important;
+  }
+  .print-shopping .shopping-list label {
+    display: flex;
+    align-items: center;
+    gap: 2.5mm;
+    padding: 0.7mm 0 !important;
+    cursor: auto;
+  }
+  /* Item text: force plain black, drop any checked strikethrough/grey. */
+  .print-shopping .shopping-list label span {
+    color: #000 !important;
+    text-decoration: none !important;
+  }
+
+  /* Checkboxes print as EMPTY squares regardless of on-screen checked state. */
+  .print-shopping input[type="checkbox"] {
+    display: none !important;
+  }
+  .print-shopping .print-square {
+    display: inline-block;
+    width: 3.5mm;
+    height: 3.5mm;
+    border: 1pt solid #000;
+    flex: 0 0 auto;
+  }
+}
