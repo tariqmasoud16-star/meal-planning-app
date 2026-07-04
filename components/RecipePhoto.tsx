@@ -1,5 +1,10 @@
-// Photo with graceful fallback: when photo_path is null, render a colored
-// placeholder carrying the cuisine name — never a broken-image icon.
+"use client";
+
+// Photo with graceful fallback: when photo_path is null — or the file is
+// missing / fails to load — render a colored placeholder carrying the cuisine
+// name. Never a broken-image icon.
+
+import { useState } from "react";
 
 const CUISINE_COLORS: Record<string, string> = {
   "Middle Eastern": "bg-amber-200 text-amber-900",
@@ -19,9 +24,20 @@ export default function RecipePhoto({
   title: string;
   className?: string;
 }) {
-  if (photoPath) {
+  // Track the URL that failed, not a bare flag, so a later photo replacement
+  // (new photoPath) is retried instead of staying on the placeholder.
+  const [failedPath, setFailedPath] = useState<string | null>(null);
+
+  if (photoPath && photoPath !== failedPath) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={photoPath} alt={title} className={`object-cover ${className}`} />;
+    return (
+      <img
+        src={photoPath}
+        alt={title}
+        onError={() => setFailedPath(photoPath)}
+        className={`object-cover ${className}`}
+      />
+    );
   }
   return (
     <div
