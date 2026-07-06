@@ -1,7 +1,10 @@
 // ---------------------------------------------------------------------------
 // Dinner proposal engine. All selection rules live here:
-//   1. No recipe repeats within the week.
-//   2. No cuisine appears more than 2 nights in a row.
+//   1. No recipe repeats within the no-repeat window. The window is every day
+//      the caller wants kept distinct — this week's cells plus any recipe ids
+//      passed in `excludeIds` (e.g. the other visible week). Callers pass the
+//      excluded set in rather than the engine querying it.
+//   2. No cuisine appears more than 2 nights in a row (within-week only).
 //   3. Mix of active_minutes — balance quick/medium/long across the week.
 // Pure functions over plain data; callers own all DB access.
 // ---------------------------------------------------------------------------
@@ -64,14 +67,19 @@ function createsRun(cuisines: (string | null)[], i: number, cuisine: string): bo
  */
 export function proposeWeek(
   days: ProposalDay[],
-  recipes: ProposalRecipe[]
+  recipes: ProposalRecipe[],
+  excludeIds: Iterable<number> = []
 ): Map<string, number> {
   const byId = new Map(recipes.map((r) => [r.id, r]));
   const lockedRecipe = (d: ProposalDay) =>
     d.locked && d.recipeId ? byId.get(d.recipeId) ?? null : null;
 
   const cuisines: (string | null)[] = days.map((d) => lockedRecipe(d)?.cuisine ?? null);
+  // `used` drives both the no-repeat filter and the within-week bucket/cuisine
+  // balancing, and is seeded only from locked days. `excluded` (the other
+  // week's recipes) blocks repeats without skewing the within-week balance.
   const used = new Set<number>();
+  const excluded = new Set<number>(excludeIds);
   const bucketCount: Record<Bucket, number> = { quick: 0, medium: 0, long: 0 };
   const cuisineCount = new Map<string, number>();
 
@@ -87,11 +95,13 @@ export function proposeWeek(
   days.forEach((day, i) => {
     if (day.locked) return;
     let candidates = shuffle(
-      recipes.filter((r) => !used.has(r.id) && !createsRun(cuisines, i, r.cuisine))
+      recipes.filter(
+        (r) => !used.has(r.id) && !excluded.has(r.id) && !createsRun(cuisines, i, r.cuisine)
+      )
     );
     if (candidates.length === 0) {
       // Library too small to honor the cuisine-run rule — relax it, never duplicate.
-      candidates = shuffle(recipes.filter((r) => !used.has(r.id)));
+      candidates = shuffle(recipes.filter((r) => !used.has(r.id) && !excluded.has(r.id)));
     }
     if (candidates.length === 0) return;
 
@@ -117,34 +127,45 @@ export function proposeWeek(
 
 /**
  * Pick a replacement recipe for one day, holding the other six fixed.
- * Never returns the day's current recipe or any recipe used elsewhere
- * in the week; obeys the cuisine-run rule against its neighbors.
+ * Never returns the day's current recipe, any recipe used elsewhere in the
+ * week, or any recipe in `excludeIds` (the other visible week); obeys the
+ * cuisine-run rule against its neighbors.
  */
 export function rerollDay(
   days: ProposalDay[],
   targetDate: string,
-  recipes: ProposalRecipe[]
+  recipes: ProposalRecipe[],
+  excludeIds: Iterable<number> = []
 ): number | null {
   const byId = new Map(recipes.map((r) => [r.id, r]));
   const i = days.findIndex((d) => d.date === targetDate);
   if (i < 0) return null;
 
   const currentId = days[i].recipeId;
+  // This week's other cells: block repeats AND drive the bucket balancing.
   const used = new Set<number>();
   for (const d of days) {
     if (d.date !== targetDate && d.recipeId) used.add(d.recipeId);
   }
+  // The other week: block repeats only, never counted toward within-week balance.
+  const excluded = new Set<number>(excludeIds);
   const cuisines: (string | null)[] = days.map((d) =>
     d.date === targetDate ? null : d.recipeId ? byId.get(d.recipeId)?.cuisine ?? null : null
   );
 
   let candidates = shuffle(
     recipes.filter(
-      (r) => !used.has(r.id) && r.id !== currentId && !createsRun(cuisines, i, r.cuisine)
+      (r) =>
+        !used.has(r.id) &&
+        !excluded.has(r.id) &&
+        r.id !== currentId &&
+        !createsRun(cuisines, i, r.cuisine)
     )
   );
   if (candidates.length === 0) {
-    candidates = shuffle(recipes.filter((r) => !used.has(r.id) && r.id !== currentId));
+    candidates = shuffle(
+      recipes.filter((r) => !used.has(r.id) && !excluded.has(r.id) && r.id !== currentId)
+    );
   }
   if (candidates.length === 0) return null;
 

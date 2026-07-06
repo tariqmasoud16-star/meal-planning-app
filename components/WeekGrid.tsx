@@ -9,6 +9,7 @@ import {
   markLeftovers,
   planWeek,
   rerollDinner,
+  type WeekKey,
 } from "@/app/actions";
 import { CUISINES, eatOutTip } from "@/lib/constraints";
 import { dayLabel } from "@/lib/week";
@@ -17,12 +18,14 @@ import type { LunchSuggestion } from "@/lib/lunch";
 import RecipePhoto from "./RecipePhoto";
 
 export default function WeekGrid({
+  week,
   dates,
   plan,
   recipes,
   today,
   lunches,
 }: {
+  week: WeekKey;
   dates: string[];
   plan: PlanEntry[];
   recipes: Recipe[];
@@ -47,11 +50,11 @@ export default function WeekGrid({
     <div>
       <div className="mb-3 flex items-center gap-3">
         <button
-          onClick={() => act(() => planWeek())}
+          onClick={() => act(() => planWeek(week))}
           disabled={pending}
           className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
         >
-          {pending ? "Working…" : "✨ Plan my week"}
+          {pending ? "Working…" : week === "next" ? "✨ Plan next week" : "✨ Plan this week"}
         </button>
         <span className="text-xs text-stone-500">
           Fills proposed cells only — manual picks, eat-out and leftovers stay put.
@@ -100,6 +103,7 @@ export default function WeekGrid({
                 <DinnerCell
                   key={date}
                   date={date}
+                  muted={date < today}
                   entry={planMap.get(date) ?? null}
                   recipeMap={recipeMap}
                   onPick={() => setPickerDate(date)}
@@ -142,6 +146,7 @@ export default function WeekGrid({
 
 function DinnerCell({
   date,
+  muted,
   entry,
   recipeMap,
   onPick,
@@ -151,6 +156,7 @@ function DinnerCell({
   onClear,
 }: {
   date: string;
+  muted: boolean;
   entry: PlanEntry | null;
   recipeMap: Map<number, Recipe>;
   onPick: () => void;
@@ -253,7 +259,10 @@ function DinnerCell({
   }
 
   return (
-    <td className="border border-stone-200 bg-white align-top" data-cell={`${date}-dinner`}>
+    <td
+      className={`border border-stone-200 bg-white align-top ${muted ? "opacity-50" : ""}`}
+      data-cell={`${date}-dinner`}
+    >
       {body}
     </td>
   );
