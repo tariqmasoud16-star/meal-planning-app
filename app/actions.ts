@@ -6,9 +6,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getRecipes, getWeekPlan } from "@/lib/queries";
-import { currentWeekDates } from "@/lib/week";
+import { currentWeekDates, nextWeekDates } from "@/lib/week";
 import { proposeWeek, rerollDay, type ProposalDay } from "@/lib/proposal";
 import type { EntryType, FillMethod, Ingredient } from "@/lib/types";
+
+export type WeekKey = "current" | "next";
 
 function upsertDinner(
   date: string,
@@ -51,9 +53,28 @@ function proposalDays(dates: string[]): ProposalDay[] {
 const proposalRecipes = () =>
   getRecipes().map((r) => ({ id: r.id, cuisine: r.cuisine, active_minutes: r.active_minutes }));
 
-export async function planWeek() {
-  const dates = currentWeekDates();
-  const assignments = proposeWeek(proposalDays(dates), proposalRecipes());
+const datesFor = (week: WeekKey) => (week === "next" ? nextWeekDates() : currentWeekDates());
+const otherWeek = (week: WeekKey): WeekKey => (week === "next" ? "current" : "next");
+
+/** Which visible week a date belongs to, or null if it's in neither. */
+function weekOfDate(date: string): WeekKey | null {
+  if (currentWeekDates().includes(date)) return "current";
+  if (nextWeekDates().includes(date)) return "next";
+  return null;
+}
+
+/** Recipe ids already planned (cook cells) across the given dates. */
+function plannedRecipeIds(dates: string[]): number[] {
+  return getWeekPlan(dates)
+    .filter((e) => e.entry_type === "cook" && e.recipe_id)
+    .map((e) => e.recipe_id!);
+}
+
+export async function planWeek(week: WeekKey = "current") {
+  const dates = datesFor(week);
+  // No-repeat window spans both visible weeks: exclude the other week's recipes.
+  const excluded = plannedRecipeIds(datesFor(otherWeek(week)));
+  const assignments = proposeWeek(proposalDays(dates), proposalRecipes(), excluded);
   const apply = db.transaction(() => {
     for (const [date, recipeId] of assignments) {
       upsertDinner(date, "cook", recipeId, null, "proposed");
@@ -64,11 +85,14 @@ export async function planWeek() {
 }
 
 export async function rerollDinner(date: string) {
-  const dates = currentWeekDates();
+  const week = weekOfDate(date);
+  if (!week) return;
+  const dates = datesFor(week);
   const days = proposalDays(dates);
   const target = days.find((d) => d.date === date);
   if (!target || target.locked) return; // never overwrite manual/eat-out/leftovers
-  const recipeId = rerollDay(days, date, proposalRecipes());
+  const excluded = plannedRecipeIds(datesFor(otherWeek(week)));
+  const recipeId = rerollDay(days, date, proposalRecipes(), excluded);
   if (recipeId === null) return;
   upsertDinner(date, "cook", recipeId, null, "proposed");
   refresh();

@@ -1,10 +1,16 @@
+import Link from "next/link";
 import { getRecipe, getWeekPlan } from "@/lib/queries";
-import { currentWeekDates } from "@/lib/week";
-import type { Ingredient, IngredientCategory } from "@/lib/types";
+import { currentWeekDates, nextWeekDates } from "@/lib/week";
+import type { Ingredient, IngredientCategory, PlanEntry } from "@/lib/types";
 import ShoppingChecklist, { type ShoppingItem } from "@/components/ShoppingChecklist";
 import PrintButton from "@/components/PrintButton";
 
 export const dynamic = "force-dynamic";
+
+type WeekKey = "current" | "next";
+
+const hasCook = (plan: PlanEntry[]) =>
+  plan.some((e) => e.entry_type === "cook" && e.recipe_id);
 
 // DD.MM.YYYY from an ISO YYYY-MM-DD, without timezone surprises.
 function deDate(iso: string): string {
@@ -31,9 +37,27 @@ function mergeIngredients(all: Ingredient[]): ShoppingItem[] {
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export default function ShoppingPage() {
-  const dates = currentWeekDates();
-  const plan = getWeekPlan(dates);
+export default async function ShoppingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ week?: string }>;
+}) {
+  const currentDates = currentWeekDates();
+  const nextDates = nextWeekDates();
+  const nextPlan = getWeekPlan(nextDates);
+
+  // Default to next week when it has any planned cooking (shop-ahead case),
+  // otherwise the current week. An explicit ?week= override always wins.
+  const requested = (await searchParams).week;
+  const selected: WeekKey =
+    requested === "current" || requested === "next"
+      ? requested
+      : hasCook(nextPlan)
+        ? "next"
+        : "current";
+
+  const dates = selected === "next" ? nextDates : currentDates;
+  const plan = selected === "next" ? nextPlan : getWeekPlan(currentDates);
   const cookEntries = plan.filter((e) => e.entry_type === "cook" && e.recipe_id);
 
   const recipeTitles: string[] = [];
@@ -56,6 +80,23 @@ export default function ShoppingPage() {
 
   return (
     <div className="print-shopping max-w-2xl">
+      {/* Screen-only week selector */}
+      <div className="no-print mb-4 flex gap-2">
+        {(["current", "next"] as WeekKey[]).map((w) => (
+          <Link
+            key={w}
+            href={`/shopping?week=${w}`}
+            className={`rounded px-3 py-1.5 text-sm font-semibold ${
+              selected === w
+                ? "bg-emerald-600 text-white"
+                : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+            }`}
+          >
+            {w === "current" ? "This week" : "Next week"}
+          </Link>
+        ))}
+      </div>
+
       {/* Screen-only heading + controls */}
       <div className="no-print mb-4 flex items-start justify-between gap-4">
         <div>
