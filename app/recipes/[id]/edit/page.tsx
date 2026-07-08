@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getRecipe } from "@/lib/queries";
+import { getRecipe, getVeggieProfile } from "@/lib/queries";
 import RecipeForm from "@/components/RecipeForm";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export default async function EditRecipePage({
   return (
     <div>
       <h1 className="mb-4 text-xl font-bold">Edit: {recipe.title}</h1>
-      <RecipeForm recipe={recipe} />
+      <RecipeForm recipe={recipe} veggies={getVeggieProfile()} />
     </div>
   );
 }

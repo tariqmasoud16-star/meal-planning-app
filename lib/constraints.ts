@@ -59,19 +59,44 @@ export function checkFried(text: string): boolean {
   return FRIED_PATTERN.test(text.replace(ALLOWED_FRY_PHRASES, ""));
 }
 
+/** Veggies the cook has personally marked as liked/disliked (from Preferences). */
+export interface VeggieProfile {
+  likes: string[];
+  dislikes: string[];
+}
+
+/** Whole-word, case-insensitive match of a veggie name inside an ingredient. */
+function mentions(ingredient: string, veggie: string): boolean {
+  const escaped = veggie.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!escaped) return false;
+  return new RegExp(`\\b${escaped}\\b`, "i").test(ingredient);
+}
+
 /**
  * Validate a list of ingredient names (plus optional title/steps text)
- * against the dietary profile. Returns warnings; never blocks.
+ * against the dietary profile. Returns warnings; never blocks. Pass the cook's
+ * saved veggie likes/dislikes to fold personal preferences into the results.
  */
 export function validateIngredients(
   ingredientNames: string[],
-  extraText: string = ""
+  extraText: string = "",
+  veggies: VeggieProfile = { likes: [], dislikes: [] }
 ): ConstraintWarning[] {
   const warnings: ConstraintWarning[] = [];
   for (const name of ingredientNames) {
     for (const rule of CONSTRAINT_RULES) {
       if (rule.pattern.test(name)) {
         warnings.push({ level: rule.level, label: rule.label, reason: rule.reason, found_in: name });
+      }
+    }
+    for (const disliked of veggies.dislikes) {
+      if (mentions(name, disliked)) {
+        warnings.push({
+          level: "avoid",
+          label: disliked,
+          reason: `You marked ${disliked} as a veggie you don't like`,
+          found_in: name,
+        });
       }
     }
   }

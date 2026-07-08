@@ -26,6 +26,22 @@ CREATE TABLE IF NOT EXISTS week_plan (
   fill_method TEXT NOT NULL DEFAULT 'manual' CHECK (fill_method IN ('proposed','manual','eat_out','leftovers')),
   UNIQUE(date, slot)
 );
+
+-- How often each cuisine should show up in the dinner plan, as a 0–100 weight.
+-- The weights are relative; the proposal engine treats them as target shares.
+CREATE TABLE IF NOT EXISTS cuisine_prefs (
+  cuisine TEXT PRIMARY KEY,
+  weight INTEGER NOT NULL DEFAULT 0
+);
+
+-- Free-form list of vegetables the cook likes or dislikes. Dislikes surface as
+-- warnings on the recipe form; likes are shown as gentle encouragement.
+CREATE TABLE IF NOT EXISTS veggie_prefs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  sentiment TEXT NOT NULL CHECK (sentiment IN ('like','dislike')),
+  UNIQUE(name, sentiment)
+);
 `;
 
 function migrate(db: Database.Database) {

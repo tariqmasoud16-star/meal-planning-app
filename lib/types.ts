@@ -46,6 +46,20 @@ export interface EatOutInfo {
   note: string;
 }
 
+// How often the cook wants each cuisine, as a relative 0–100 weight.
+export interface CuisinePref {
+  cuisine: Cuisine;
+  weight: number;
+}
+
+export type VeggieSentiment = "like" | "dislike";
+
+export interface VeggiePref {
+  id: number;
+  name: string;
+  sentiment: VeggieSentiment;
+}
+
 export function parseEatOutNote(raw: string | null): EatOutInfo {
   if (!raw) return { cuisine: "", note: "" };
   try {

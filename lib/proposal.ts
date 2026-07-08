@@ -6,6 +6,8 @@
 //      excluded set in rather than the engine querying it.
 //   2. No cuisine appears more than 2 nights in a row (within-week only).
 //   3. Mix of active_minutes — balance quick/medium/long across the week.
+//   4. Cuisine mix — when the cook has set cuisine weights, favor whichever
+//      cuisine is furthest below its target share; otherwise spread evenly.
 // Pure functions over plain data; callers own all DB access.
 // ---------------------------------------------------------------------------
 
@@ -13,6 +15,30 @@ export interface ProposalRecipe {
   id: number;
   cuisine: string;
   active_minutes: number;
+}
+
+/** Relative 0–100 weight per cuisine. Empty (or all-zero) means "no preference". */
+export type CuisineWeights = Map<string, number>;
+
+/**
+ * Rank a cuisine for selection — lower is picked sooner. With no weights set we
+ * fall back to plain least-used balancing (the original behavior). With weights
+ * set we prefer the cuisine whose current count is furthest below its target
+ * share: (count + 1) / weight. A zero-weight cuisine is deprioritized but never
+ * hard-blocked, so the engine can still fill a week if the library is thin.
+ */
+function cuisineRank(
+  cuisine: string,
+  cuisineCount: Map<string, number>,
+  weights: CuisineWeights
+): number {
+  const count = cuisineCount.get(cuisine) ?? 0;
+  let total = 0;
+  for (const w of weights.values()) total += w;
+  if (total <= 0) return count;
+  const weight = weights.get(cuisine) ?? 0;
+  if (weight <= 0) return Number.MAX_SAFE_INTEGER + count;
+  return (count + 1) / weight;
 }
 
 export interface ProposalDay {
@@ -68,7 +94,8 @@ function createsRun(cuisines: (string | null)[], i: number, cuisine: string): bo
 export function proposeWeek(
   days: ProposalDay[],
   recipes: ProposalRecipe[],
-  excludeIds: Iterable<number> = []
+  excludeIds: Iterable<number> = [],
+  cuisineWeights: CuisineWeights = new Map()
 ): Map<string, number> {
   const byId = new Map(recipes.map((r) => [r.id, r]));
   const lockedRecipe = (d: ProposalDay) =>
@@ -106,12 +133,14 @@ export function proposeWeek(
     if (candidates.length === 0) return;
 
     // Stable sort over a shuffled list: prefer the least-used time bucket,
-    // then the least-used cuisine; ties stay random.
+    // then the cuisine furthest below its target share (or least-used cuisine
+    // when no weights are set); ties stay random.
     candidates.sort(
       (a, b) =>
         bucketCount[minuteBucket(a.active_minutes)] -
           bucketCount[minuteBucket(b.active_minutes)] ||
-        (cuisineCount.get(a.cuisine) ?? 0) - (cuisineCount.get(b.cuisine) ?? 0)
+        cuisineRank(a.cuisine, cuisineCount, cuisineWeights) -
+          cuisineRank(b.cuisine, cuisineCount, cuisineWeights)
     );
     const pick = candidates[0];
 
@@ -135,7 +164,8 @@ export function rerollDay(
   days: ProposalDay[],
   targetDate: string,
   recipes: ProposalRecipe[],
-  excludeIds: Iterable<number> = []
+  excludeIds: Iterable<number> = [],
+  cuisineWeights: CuisineWeights = new Map()
 ): number | null {
   const byId = new Map(recipes.map((r) => [r.id, r]));
   const i = days.findIndex((d) => d.date === targetDate);
@@ -169,20 +199,31 @@ export function rerollDay(
   }
   if (candidates.length === 0) return null;
 
-  // Prefer a time bucket underrepresented in the rest of the week; keep the
-  // final choice random within that bucket.
+  // Prefer a time bucket underrepresented in the rest of the week, then the
+  // cuisine furthest below its target share; keep the final choice random
+  // among equally-good picks.
   const bucketCount: Record<Bucket, number> = { quick: 0, medium: 0, long: 0 };
+  const cuisineCount = new Map<string, number>();
   for (const id of used) {
     const r = byId.get(id);
-    if (r) bucketCount[minuteBucket(r.active_minutes)]++;
+    if (!r) continue;
+    bucketCount[minuteBucket(r.active_minutes)]++;
+    cuisineCount.set(r.cuisine, (cuisineCount.get(r.cuisine) ?? 0) + 1);
   }
   candidates.sort(
     (a, b) =>
       bucketCount[minuteBucket(a.active_minutes)] - bucketCount[minuteBucket(b.active_minutes)]
   );
   const bestBucketUse = bucketCount[minuteBucket(candidates[0].active_minutes)];
-  const pool = candidates.filter(
+  let pool = candidates.filter(
     (c) => bucketCount[minuteBucket(c.active_minutes)] === bestBucketUse
+  );
+  // Within the best time bucket, narrow to the best-ranked cuisine(s).
+  const bestCuisineRank = Math.min(
+    ...pool.map((c) => cuisineRank(c.cuisine, cuisineCount, cuisineWeights))
+  );
+  pool = pool.filter(
+    (c) => cuisineRank(c.cuisine, cuisineCount, cuisineWeights) === bestCuisineRank
   );
   return pool[Math.floor(Math.random() * pool.length)].id;
 }

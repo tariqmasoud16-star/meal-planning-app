@@ -5,10 +5,11 @@ import path from "path";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { getRecipes, getWeekPlan } from "@/lib/queries";
+import { getCuisinePrefs, getRecipes, getWeekPlan } from "@/lib/queries";
+import { CUISINES } from "@/lib/constraints";
 import { currentWeekDates, nextWeekDates } from "@/lib/week";
-import { proposeWeek, rerollDay, type ProposalDay } from "@/lib/proposal";
-import type { EntryType, FillMethod, Ingredient } from "@/lib/types";
+import { proposeWeek, rerollDay, type CuisineWeights, type ProposalDay } from "@/lib/proposal";
+import type { EntryType, FillMethod, Ingredient, VeggieSentiment } from "@/lib/types";
 
 export type WeekKey = "current" | "next";
 
@@ -53,6 +54,9 @@ function proposalDays(dates: string[]): ProposalDay[] {
 const proposalRecipes = () =>
   getRecipes().map((r) => ({ id: r.id, cuisine: r.cuisine, active_minutes: r.active_minutes }));
 
+const cuisineWeights = (): CuisineWeights =>
+  new Map(getCuisinePrefs().map((p) => [p.cuisine, p.weight]));
+
 const datesFor = (week: WeekKey) => (week === "next" ? nextWeekDates() : currentWeekDates());
 const otherWeek = (week: WeekKey): WeekKey => (week === "next" ? "current" : "next");
 
@@ -74,7 +78,7 @@ export async function planWeek(week: WeekKey = "current") {
   const dates = datesFor(week);
   // No-repeat window spans both visible weeks: exclude the other week's recipes.
   const excluded = plannedRecipeIds(datesFor(otherWeek(week)));
-  const assignments = proposeWeek(proposalDays(dates), proposalRecipes(), excluded);
+  const assignments = proposeWeek(proposalDays(dates), proposalRecipes(), excluded, cuisineWeights());
   const apply = db.transaction(() => {
     for (const [date, recipeId] of assignments) {
       upsertDinner(date, "cook", recipeId, null, "proposed");
@@ -92,7 +96,7 @@ export async function rerollDinner(date: string) {
   const target = days.find((d) => d.date === date);
   if (!target || target.locked) return; // never overwrite manual/eat-out/leftovers
   const excluded = plannedRecipeIds(datesFor(otherWeek(week)));
-  const recipeId = rerollDay(days, date, proposalRecipes(), excluded);
+  const recipeId = rerollDay(days, date, proposalRecipes(), excluded, cuisineWeights());
   if (recipeId === null) return;
   upsertDinner(date, "cook", recipeId, null, "proposed");
   refresh();
@@ -217,4 +221,45 @@ export async function updateRecipePhotoFromUrl(
   revalidatePath(`/recipes/${id}`);
   revalidatePath("/");
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Preferences: cuisine mix + liked/disliked veggies
+// ---------------------------------------------------------------------------
+
+/** Save the whole cuisine mix at once. Weights are clamped to 0–100. */
+export async function saveCuisinePrefs(weights: Record<string, number>) {
+  const upsert = db.prepare(
+    `INSERT INTO cuisine_prefs (cuisine, weight) VALUES (?, ?)
+     ON CONFLICT(cuisine) DO UPDATE SET weight = excluded.weight`
+  );
+  const apply = db.transaction(() => {
+    for (const cuisine of CUISINES) {
+      const raw = Number(weights[cuisine]);
+      const weight = Number.isFinite(raw) ? Math.min(100, Math.max(0, Math.round(raw))) : 0;
+      upsert.run(cuisine, weight);
+    }
+  });
+  apply();
+  revalidatePath("/preferences");
+  revalidatePath("/");
+}
+
+export async function addVeggiePref(name: string, sentiment: VeggieSentiment) {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  if (sentiment !== "like" && sentiment !== "dislike") return;
+  // A veggie can't be both liked and disliked — the newest choice wins.
+  db.prepare("DELETE FROM veggie_prefs WHERE name = ? COLLATE NOCASE").run(trimmed);
+  db.prepare(
+    "INSERT OR IGNORE INTO veggie_prefs (name, sentiment) VALUES (?, ?)"
+  ).run(trimmed, sentiment);
+  revalidatePath("/preferences");
+  revalidatePath("/recipes/new");
+}
+
+export async function removeVeggiePref(id: number) {
+  db.prepare("DELETE FROM veggie_prefs WHERE id = ?").run(id);
+  revalidatePath("/preferences");
+  revalidatePath("/recipes/new");
 }

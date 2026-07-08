@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveRecipe, updateRecipePhotoFromUrl } from "@/app/actions";
 import { CUISINES, METHODS, MAX_ACTIVE_MINUTES, validateIngredients } from "@/lib/constraints";
+import type { VeggieProfile } from "@/lib/constraints";
 import type { Ingredient, IngredientCategory, Recipe } from "@/lib/types";
 import RecipePhoto from "./RecipePhoto";
 
@@ -16,7 +17,15 @@ const emptyIngredient = (): Ingredient => ({
   category: "produce",
 });
 
-export default function RecipeForm({ recipe }: { recipe?: Recipe }) {
+const NO_VEGGIES: VeggieProfile = { likes: [], dislikes: [] };
+
+export default function RecipeForm({
+  recipe,
+  veggies = NO_VEGGIES,
+}: {
+  recipe?: Recipe;
+  veggies?: VeggieProfile;
+}) {
   const [title, setTitle] = useState(recipe?.title ?? "");
   const [cuisine, setCuisine] = useState<string>(recipe?.cuisine ?? "Middle Eastern");
   const [protein, setProtein] = useState(recipe?.protein_grams_estimate ?? 20);
@@ -32,10 +41,19 @@ export default function RecipeForm({ recipe }: { recipe?: Recipe }) {
     () =>
       validateIngredients(
         ingredients.map((i) => i.name).filter(Boolean),
-        `${title} ${stepsText}`
+        `${title} ${stepsText}`,
+        veggies
       ),
-    [ingredients, title, stepsText]
+    [ingredients, title, stepsText, veggies]
   );
+
+  // Liked veggies that appear in the ingredient list — shown as encouragement.
+  const likedPresent = useMemo(() => {
+    const names = ingredients.map((i) => i.name.toLowerCase());
+    return veggies.likes.filter((v) =>
+      names.some((n) => n.includes(v.toLowerCase().trim()) && v.trim())
+    );
+  }, [ingredients, veggies]);
 
   const setIng = (idx: number, patch: Partial<Ingredient>) =>
     setIngredients((prev) => prev.map((i, j) => (j === idx ? { ...i, ...patch } : i)));
@@ -79,6 +97,12 @@ export default function RecipeForm({ recipe }: { recipe?: Recipe }) {
               ⚠️ <strong>{w.label}</strong> found in “{w.found_in}” — {w.reason}
             </div>
           ))}
+        </div>
+      )}
+
+      {likedPresent.length > 0 && (
+        <div className="mb-4 rounded border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-800">
+          💚 Uses veggies you like: {likedPresent.join(", ")}
         </div>
       )}
 
